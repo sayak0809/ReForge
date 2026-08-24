@@ -314,8 +314,11 @@ The tricky part: the SDK retries a failing request up to 5 times with exponentia
 
 `gemini-3.7-flash` was added back to the front of the chain — with per-attempt retries disabled, a 503 there costs a few seconds, not the 2 minutes it would under the SDK's default backoff, so there's no real downside to trying it first and falling through if it's still overloaded.
 
+**Then pinned back down to just `gemini-3.5-flash`** for the rest of the day — it tested as the most consistently stable of the bunch, and the fallback machinery (`generate_with_fallback`, fast-fail retries) is still in place, so re-expanding `FALLBACK_MODELS` back to the full chain later is a one-line change whenever that's wanted again.
+
 ### What's next
 
+- [ ] Re-expand `FALLBACK_MODELS` beyond just 3.5-flash once ready to spread load across models again
 - [ ] Still no real auth, still no Alembic migrations (carried over from Session 5)
 
 ---

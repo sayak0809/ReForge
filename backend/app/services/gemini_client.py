@@ -4,16 +4,13 @@ import re
 from google import genai
 from google.genai import types
 
-# Newest first. Each model has its own separate free-tier daily quota
-# (confirmed via the RESOURCE_EXHAUSTED error, which is scoped per-model),
-# so falling back through several effectively multiplies our daily headroom
-# instead of hitting one shared 20-requests-a-day wall.
+# Newest-first fallback chain, normally. Pinned to just 3.5-flash for now —
+# it tested as the most stable of the bunch; re-add the others above it once
+# ready to spread load across models again (each has its own separate
+# free-tier daily quota, confirmed via the RESOURCE_EXHAUSTED error's
+# per-model quotaDimensions).
 FALLBACK_MODELS = [
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash",
 ]
 
 
