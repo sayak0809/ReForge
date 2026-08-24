@@ -23,8 +23,8 @@ def chat(body: ChatRequest, db: Session = Depends(get_db)):
         reply = chat_with_coach(db, body.user_id, body.message)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Coach is temporarily unavailable: {e}")
     return {"reply": reply}
 
 
