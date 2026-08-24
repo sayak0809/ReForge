@@ -1,7 +1,7 @@
 import asyncio
 from google.genai import types
 from dotenv import load_dotenv
-from app.services.gemini_client import get_client, extract_json
+from app.services.gemini_client import get_client, extract_json, generate_with_fallback
 
 load_dotenv()
 
@@ -21,10 +21,7 @@ def _call_gemini_sync(images: list[bytes]) -> dict:
         types.Part.from_bytes(data=img, mime_type="image/jpeg")
         for img in images
     ]
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=[FOOD_PROMPT] + image_parts,
-    )
+    response = generate_with_fallback(client, contents=[FOOD_PROMPT] + image_parts)
     return extract_json(response.text)
 
 

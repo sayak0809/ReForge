@@ -4,7 +4,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.models import Quest, UserQuest, User, FoodLog
 from app.services.xp_service import award_xp, revoke_xp
-from app.services.gemini_client import get_client, extract_json
+from app.services.gemini_client import get_client, extract_json, generate_with_fallback
 from app.services.user_context import gather_user_context, format_context_text
 
 QUEST_CATEGORIES = ["walking", "running", "swimming", "diet", "hiking"]
@@ -115,7 +115,7 @@ def _generate_specs_via_ai(
 
     prompt = QUEST_SPEC_PROMPT.format(context=context_text, n=n, exclusion_note=exclusion_note)
     client = get_client()
-    response = client.models.generate_content(model="gemini-3.6-flash", contents=[prompt])
+    response = generate_with_fallback(client, contents=[prompt])
     data = extract_json(response.text)
     return data.get("quests", [])[:n]
 

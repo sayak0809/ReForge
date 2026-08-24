@@ -302,9 +302,20 @@ Mid-debugging, the Postgres password and `GEMINI_API_KEY` both ended up pasted i
 
 ## Session 6 — August 24, 2026
 
-### Model upgrade: gemini-2.5-flash → gemini-3.6-flash
+### Model upgrade, then automatic multi-model fallback
 
-The Gemini model string had never been touched since it was first wired up, and had quietly fallen five generations behind — Google's lineup moved 2.5 → 3 Preview → 3.1 → 3.5 → 3.6 → 3.7 without us noticing. Tried the newest, `gemini-3.7-flash` (GA August 13, 2026), first — it consistently returned `503 UNAVAILABLE` ("high demand") both via the SDK and a direct HTTP call, likely just capacity strain on a model 11 days out from launch. Fell back to `gemini-3.6-flash`, confirmed working cleanly (quest generation and Coach chat both verified end-to-end against the real API), and used that instead in `ai_service.py`, `quest_service.py`, and `coach_service.py`. Worth retrying `3.7-flash` again later if it settles down — same drop-in change, one string per file.
+The Gemini model string had never been touched since it was first wired up, and had quietly fallen five generations behind — Google's lineup moved 2.5 → 3 Preview → 3.1 → 3.5 → 3.6 → 3.7 without us noticing.
+
+Started with a straight swap to the newest, `gemini-3.7-flash` (GA August 13, 2026) — it consistently returned `503 UNAVAILABLE` ("high demand"), likely capacity strain on a model 11 days out from launch, so it was dropped from rotation for now.
+
+That, plus the free-tier quota problem from earlier in the session, led to a better fix than a single hardcoded model: the earlier `RESOURCE_EXHAUSTED` error's `quotaDimensions` showed the daily limit is scoped **per model**, not shared account-wide — so cycling through several models multiplies the effective daily headroom instead of hitting one shared wall. `gemini_client.py` now exports `generate_with_fallback()`, tried in order: `gemini-3.6-flash` → `gemini-3.5-flash` → `gemini-3.1-flash-lite` → `gemini-2.5-flash`. All three call sites (`ai_service.py`, `quest_service.py`, `coach_service.py`) use this instead of a hardcoded `model=`.
+
+The tricky part: the SDK retries a failing request up to 5 times with exponential backoff (up to 60s) *by default*, which is what made an early test of a single overloaded model hang for over 2 minutes. `generate_with_fallback` sets `HttpRetryOptions(attempts=1)` so each model gets exactly one try before moving to the next — verified all four models individually fail/succeed in under 8 seconds each, so a full worst-case walk through the whole chain stays well under Railway's request timeout.
+
+### What's next
+
+- [ ] Re-add `gemini-3.7-flash` to the front of the fallback chain once it's not returning 503s under load
+- [ ] Still no real auth, still no Alembic migrations (carried over from Session 5)
 
 ---
 

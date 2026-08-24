@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from google.genai import types
 from app.models import CoachMessage
-from app.services.gemini_client import get_client
+from app.services.gemini_client import get_client, generate_with_fallback
 from app.services.user_context import gather_user_context, format_context_text
 
 HISTORY_LIMIT = 20
@@ -41,11 +41,7 @@ def chat_with_coach(db: Session, user_id: int, message: str) -> str:
     system_instruction = SYSTEM_PROMPT_TEMPLATE.format(context=format_context_text(context))
 
     client = get_client()
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=contents,
-        config=types.GenerateContentConfig(system_instruction=system_instruction),
-    )
+    response = generate_with_fallback(client, contents=contents, system_instruction=system_instruction)
     reply = response.text.strip()
 
     db.add(CoachMessage(user_id=user_id, role="user", content=message))
