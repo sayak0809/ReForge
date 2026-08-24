@@ -9,6 +9,7 @@ from google.genai import types
 # so falling back through several effectively multiplies our daily headroom
 # instead of hitting one shared 20-requests-a-day wall.
 FALLBACK_MODELS = [
+    "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-3.1-flash-lite",

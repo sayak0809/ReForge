@@ -312,9 +312,10 @@ That, plus the free-tier quota problem from earlier in the session, led to a bet
 
 The tricky part: the SDK retries a failing request up to 5 times with exponential backoff (up to 60s) *by default*, which is what made an early test of a single overloaded model hang for over 2 minutes. `generate_with_fallback` sets `HttpRetryOptions(attempts=1)` so each model gets exactly one try before moving to the next — verified all four models individually fail/succeed in under 8 seconds each, so a full worst-case walk through the whole chain stays well under Railway's request timeout.
 
+`gemini-3.7-flash` was added back to the front of the chain — with per-attempt retries disabled, a 503 there costs a few seconds, not the 2 minutes it would under the SDK's default backoff, so there's no real downside to trying it first and falling through if it's still overloaded.
+
 ### What's next
 
-- [ ] Re-add `gemini-3.7-flash` to the front of the fallback chain once it's not returning 503s under load
 - [ ] Still no real auth, still no Alembic migrations (carried over from Session 5)
 
 ---
