@@ -4,9 +4,13 @@ import 'screens/dashboard_screen.dart';
 import 'screens/weight_screen.dart';
 import 'screens/food_screen.dart';
 import 'screens/coach_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'services/api_service.dart';
 import 'theme/app_colors.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ApiService.loadUserId();
   runApp(const ReforgeApp());
 }
 
@@ -35,8 +39,27 @@ class ReforgeApp extends StatelessWidget {
           error: AppColors.error,
         ),
       ),
-      home: const MainScreen(),
+      home: const AppRoot(),
     );
+  }
+}
+
+class AppRoot extends StatefulWidget {
+  const AppRoot({super.key});
+
+  @override
+  State<AppRoot> createState() => _AppRootState();
+}
+
+class _AppRootState extends State<AppRoot> {
+  late bool _onboarded = ApiService.hasUser;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_onboarded) {
+      return OnboardingScreen(onComplete: () => setState(() => _onboarded = true));
+    }
+    return const MainScreen();
   }
 }
 

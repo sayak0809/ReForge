@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/quest.dart';
 import '../models/weight.dart';
@@ -7,11 +8,67 @@ import '../models/food_log.dart';
 import '../models/coach_message.dart';
 
 class ApiService {
-  static const String _baseUrl = 'http://127.0.0.1:8000';
-  static const int userId = 1;
+  /// Override at build/run time with:
+  ///   flutter run --dart-define=API_BASE_URL=http://192.168.1.23:8000
+  /// Defaults to localhost, which only works when the backend runs on the
+  /// same device as the app (e.g. an iOS simulator on this Mac).
+  static const String _baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://127.0.0.1:8000',
+  );
+  static const String _userIdPrefKey = 'user_id';
+  static int? _userId;
+
+  static int get userId {
+    final id = _userId;
+    if (id == null) {
+      throw StateError('No user set up yet — onboarding must complete before the API is used.');
+    }
+    return id;
+  }
+
+  static bool get hasUser => _userId != null;
+
+  /// Call once at app startup, before runApp, to restore the signed-in user (if any).
+  static Future<void> loadUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    _userId = prefs.getInt(_userIdPrefKey);
+  }
+
+  static Future<void> _persistUserId(int id) async {
+    _userId = id;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_userIdPrefKey, id);
+  }
 
   static String foodImageUrl(int imageId) => '$_baseUrl/food/images/$imageId';
   static String userPhotoUrl(int userId) => '$_baseUrl/users/$userId/photo';
+
+  Future<User> createUser({
+    required String name,
+    required int age,
+    required double heightCm,
+    required double currentWeight,
+    required double goalWeight,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/users/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'name': name,
+        'age': age,
+        'height_cm': heightCm,
+        'current_weight': currentWeight,
+        'goal_weight': goalWeight,
+      }),
+    );
+    if (response.statusCode == 200) {
+      final user = User.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      await ApiService._persistUserId(user.id);
+      return user;
+    }
+    throw Exception('Failed to create profile: ${response.statusCode}');
+  }
 
   Future<User> getUser() async {
     final response = await http.get(Uri.parse('$_baseUrl/users/$userId'));
