@@ -17,7 +17,8 @@ TARGET_RANGES = {
     "running": (1, 15),        # km
     "swimming": (100, 3000),   # meters
     "hiking": (2, 20),         # km
-    "diet_calories": (1200, 3500),
+    "diet_calories_deficit": (1200, 3000),   # "stay under" ceiling — weight loss/maintenance
+    "diet_calories_surplus": (2200, 4500),   # "eat at least" floor — weight gain
     "diet_protein": (50, 220),
 }
 
@@ -27,7 +28,9 @@ User's current data:
 {context}
 
 Only choose from these categories: walking, running, swimming, diet, hiking.
-For "diet" quests, also pick a diet_metric of either "calories" (stay under X kcal) or "protein" (hit at least Xg protein).
+For "diet" quests, also pick a diet_metric of either "calories" or "protein".
+This user's calorie goal direction is: {diet_direction}. If "surplus" (their goal weight is higher than their current weight — they want to gain weight), a "calories" quest means eating AT LEAST X kcal — pick a target that's a genuine surplus above their likely maintenance needs. If "deficit" (losing or maintaining weight), a "calories" quest means staying UNDER X kcal — pick a moderate, sustainable target, not an extreme cut.
+"protein" quests always mean hitting at least Xg protein, regardless of calorie direction.
 Pick targets that are attainable but a bit challenging given this specific user's level and recent activity — do not just use round default numbers, actually reason about what's realistic for them.
 Generate exactly {n} quest(s), using distinct categories from each other.{exclusion_note}
 
@@ -51,6 +54,18 @@ def _rarity_for_level(level: int) -> str:
     return "common"
 
 
+# Like rarity, this is never the AI's call — it's derived deterministically
+# from the user's own goal_weight vs current_weight, so a "calories" quest
+# always points the right direction for their actual goal instead of an LLM
+# guessing (or worse, defaulting to the weight-loss framing for everyone).
+def _diet_direction(user: User) -> str:
+    current = user.current_weight or 0
+    goal = user.goal_weight if user.goal_weight is not None else current
+    if goal > current + 0.5:
+        return "surplus"
+    return "deficit"
+
+
 def _level_target(user: User, category: str, diet_metric: str | None = None) -> float:
     level = user.level or 1
     if category == "walking":
@@ -64,14 +79,15 @@ def _level_target(user: User, category: str, diet_metric: str | None = None) -> 
     if category == "diet":
         if diet_metric == "protein":
             return round(100 + level * 3)
-        return 1800
+        return 3000 if _diet_direction(user) == "surplus" else 1800
     raise ValueError(category)
 
 
 def _fallback_spec(user: User, category: str) -> dict:
     diet_metric = random.choice(["calories", "protein"]) if category == "diet" else None
     target = _level_target(user, category, diet_metric)
-    return {"category": category, "diet_metric": diet_metric, "target": target}
+    diet_direction = _diet_direction(user) if diet_metric == "calories" else None
+    return {"category": category, "diet_metric": diet_metric, "diet_direction": diet_direction, "target": target}
 
 
 def _fallback_specs(user: User, n: int, exclude_categories: list[str] | None = None) -> list[dict]:
@@ -82,7 +98,7 @@ def _fallback_specs(user: User, n: int, exclude_categories: list[str] | None = N
     return [_fallback_spec(user, c) for c in picks]
 
 
-def _clamp_spec(spec: dict) -> dict | None:
+def _clamp_spec(spec: dict, user: User) -> dict | None:
     category = spec.get("category")
     if category not in QUEST_CATEGORIES:
         return None
@@ -92,20 +108,25 @@ def _clamp_spec(spec: dict) -> dict | None:
         return None
 
     diet_metric = None
+    diet_direction = None
     if category == "diet":
         diet_metric = spec.get("diet_metric")
         if diet_metric not in ("calories", "protein"):
             diet_metric = "calories"
-        lo, hi = TARGET_RANGES[f"diet_{diet_metric}"]
+        if diet_metric == "calories":
+            diet_direction = _diet_direction(user)
+            lo, hi = TARGET_RANGES[f"diet_calories_{diet_direction}"]
+        else:
+            lo, hi = TARGET_RANGES["diet_protein"]
     else:
         lo, hi = TARGET_RANGES[category]
     target = max(lo, min(hi, target))
 
-    return {"category": category, "diet_metric": diet_metric, "target": round(target, 1)}
+    return {"category": category, "diet_metric": diet_metric, "diet_direction": diet_direction, "target": round(target, 1)}
 
 
 def _generate_specs_via_ai(
-    context_text: str, n: int, exclude_categories: list[str] | None, preferred_category: str | None
+    context_text: str, n: int, exclude_categories: list[str] | None, preferred_category: str | None, diet_direction: str
 ) -> list[dict]:
     exclusion_note = ""
     if preferred_category:
@@ -113,7 +134,7 @@ def _generate_specs_via_ai(
     elif exclude_categories:
         exclusion_note = f" Avoid these categories, the user already has them today: {', '.join(exclude_categories)}."
 
-    prompt = QUEST_SPEC_PROMPT.format(context=context_text, n=n, exclusion_note=exclusion_note)
+    prompt = QUEST_SPEC_PROMPT.format(context=context_text, n=n, exclusion_note=exclusion_note, diet_direction=diet_direction)
     client = get_client()
     response = generate_with_fallback(client, contents=[prompt])
     data = extract_json(response.text)
@@ -135,6 +156,8 @@ def _quest_fields_from_spec(spec: dict) -> dict:
         title, description = f"Hike {target:g}km", f"Complete a hike of at least {target:g} kilometers"
     elif category == "diet" and spec.get("diet_metric") == "protein":
         title, description = f"Hit {target:g}g protein", f"Eat at least {target:g}g of protein today"
+    elif category == "diet" and spec.get("diet_direction") == "surplus":
+        title, description = f"Eat {target:g} kcal", f"Eat at least {target:g} calories today"
     else:
         title, description = f"Stay under {target:g} kcal", f"Stay under {target:g} calories today"
 
@@ -143,6 +166,7 @@ def _quest_fields_from_spec(spec: dict) -> dict:
         "description": description,
         "quest_type": category,
         "diet_metric": spec.get("diet_metric") if category == "diet" else None,
+        "diet_direction": spec.get("diet_direction") if category == "diet" else None,
         "target_value": target,
         "xp_reward": RARITY_XP[rarity],
         "rarity": rarity,
@@ -152,9 +176,10 @@ def _quest_fields_from_spec(spec: dict) -> dict:
 def _build_quest_specs(
     user: User, context_text: str, n: int, exclude_categories: list[str] | None = None, preferred_category: str | None = None
 ) -> list[dict]:
+    diet_direction = _diet_direction(user)
     try:
-        raw_specs = _generate_specs_via_ai(context_text, n, exclude_categories, preferred_category)
-        valid = [s for s in (_clamp_spec(s) for s in raw_specs) if s]
+        raw_specs = _generate_specs_via_ai(context_text, n, exclude_categories, preferred_category, diet_direction)
+        valid = [s for s in (_clamp_spec(s, user) for s in raw_specs) if s]
         if preferred_category:
             valid = [s for s in valid if s["category"] == preferred_category]
     except Exception:
@@ -177,7 +202,10 @@ def _build_quest_specs(
 
 
 def resolve_past_calorie_quests(db: Session, user_id: int) -> None:
-    """EOD reconciliation: a 'stay under X kcal' quest can only be judged once its day has passed."""
+    """EOD reconciliation for 'stay under X kcal' (deficit) quests only — a ceiling
+    can't be judged until the day is over, since more food could still push the
+    total over it. Floor-style calorie quests (surplus, for weight-gain goals)
+    behave like protein and are handled in real time by sync_diet_quests_for_date."""
     today = date.today()
     pending = (
         db.query(UserQuest)
@@ -188,6 +216,7 @@ def resolve_past_calorie_quests(db: Session, user_id: int) -> None:
             func.date(UserQuest.assigned_date) < today,
             Quest.quest_type == "diet",
             Quest.diet_metric == "calories",
+            Quest.diet_direction == "deficit",
         )
         .all()
     )
@@ -212,7 +241,10 @@ def resolve_past_calorie_quests(db: Session, user_id: int) -> None:
 
 
 def sync_diet_quests_for_date(db: Session, user_id: int, target_date: date) -> None:
-    """Real-time reconciliation for 'hit Xg protein' quests, triggered whenever a food log changes."""
+    """Real-time reconciliation for floor-style diet quests — 'hit Xg protein' and
+    'eat at least X kcal' (surplus, weight-gain goal) — triggered whenever a food
+    log changes. Safe to judge immediately (unlike a ceiling quest) because more
+    food logged only ever helps a floor, never breaks it."""
     quests_today = (
         db.query(UserQuest)
         .join(Quest)
@@ -220,33 +252,41 @@ def sync_diet_quests_for_date(db: Session, user_id: int, target_date: date) -> N
             UserQuest.user_id == user_id,
             func.date(UserQuest.assigned_date) == target_date,
             Quest.quest_type == "diet",
-            Quest.diet_metric == "protein",
         )
+        .filter((Quest.diet_metric == "protein") | (Quest.diet_direction == "surplus"))
         .all()
     )
     if not quests_today:
         return
 
-    total_protein = (
-        db.query(func.coalesce(func.sum(FoodLog.estimated_protein), 0.0))
-        .filter(
-            FoodLog.user_id == user_id,
-            FoodLog.status == "confirmed",
-            func.date(FoodLog.logged_at) == target_date,
-        )
-        .scalar()
-    )
+    totals: dict[str, float] = {}
+
+    def _total_for(uq: UserQuest) -> float:
+        metric = uq.quest.diet_metric
+        column = FoodLog.estimated_protein if metric == "protein" else FoodLog.estimated_calories
+        if metric not in totals:
+            totals[metric] = (
+                db.query(func.coalesce(func.sum(column), 0.0))
+                .filter(
+                    FoodLog.user_id == user_id,
+                    FoodLog.status == "confirmed",
+                    func.date(FoodLog.logged_at) == target_date,
+                )
+                .scalar()
+            )
+        return totals[metric]
 
     for uq in quests_today:
         target = uq.quest.target_value
-        if total_protein >= target and not uq.completed:
+        total = _total_for(uq)
+        if total >= target and not uq.completed:
             uq.completed = True
             uq.completed_at = datetime.utcnow()
             uq.auto_completed = True
             db.commit()
             db.refresh(uq)
             award_xp(db, user_id, uq.quest.xp_reward, "quest_auto_completed")
-        elif total_protein < target and uq.completed and uq.auto_completed:
+        elif total < target and uq.completed and uq.auto_completed:
             uq.completed = False
             uq.completed_at = None
             uq.auto_completed = False

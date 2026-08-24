@@ -323,4 +323,26 @@ The tricky part: the SDK retries a failing request up to 5 times with exponentia
 
 ---
 
-*Documentation updated: August 24, 2026 — Session 6 complete.*
+## Session 7 — August 24, 2026
+
+### Diet quests now respect weight-gain goals, not just weight-loss
+
+Reported from beta testing: a friend's `goal_weight` is *higher* than their `current_weight` (they're trying to gain weight), but every "calories" diet quest was hardcoded to the deficit framing — "Stay under X kcal" — which is actively the wrong instruction for someone trying to bulk.
+
+Fixed deterministically in `quest_service.py`, following the same pattern already used for quest rarity: the AI is never trusted to decide quest *direction* on its own, it's derived in Python from `user.goal_weight` vs `user.current_weight`.
+
+- New `_diet_direction(user)`: returns `"surplus"` if goal weight is more than 0.5kg above current weight, else `"deficit"` (covers both losing and maintaining — a calorie ceiling is still the right framing for those).
+- New `Quest.diet_direction` column (`"deficit"` or `"surplus"`, only set when `diet_metric == "calories"`). Migrated onto both the local Docker Postgres and the Railway production DB by hand (no Alembic).
+- Quest wording flips accordingly: surplus renders as "Eat X kcal" / "Eat at least X calories today" (a floor); deficit keeps the existing "Stay under X kcal" (a ceiling).
+- `TARGET_RANGES` split into `diet_calories_deficit` (1200–3000 kcal) and `diet_calories_surplus` (2200–4500 kcal) so clamping picks a sane range for whichever direction actually applies — the AI is told the user's direction in the prompt and asked to reason about a real target within it, but the direction itself and the final clamp are enforced in code regardless of what the model returns.
+- **Reconciliation timing also had to change**, not just the label: a ceiling quest ("stay under") can only be judged once the day is over, since more food logged later could still push the total over — that's what `resolve_past_calorie_quests` (EOD) is for. But a floor quest ("eat at least") is safe to judge the moment it's crossed, exactly like the existing protein quest — more food only ever helps a floor. So surplus calorie quests were moved into `sync_diet_quests_for_date`, which now auto-completes/auto-undoes both protein *and* surplus-calorie quests in real time as food is logged or deleted; `resolve_past_calorie_quests` now only ever looks at deficit-direction quests.
+- Verified end-to-end locally: created a test user with `goal_weight > current_weight`, confirmed `/quests/today` generated "Eat X kcal" (AI picked 2450, correctly inside the surplus range), then logged a manual meal that crossed the target and confirmed the quest auto-completed in real time with XP awarded — same request, no page refresh needed.
+
+### What's next
+
+- [ ] Re-expand `FALLBACK_MODELS` beyond just 3.5-flash once ready to spread load across models again
+- [ ] Still no real auth, still no Alembic migrations (carried over from Session 5)
+
+---
+
+*Documentation updated: August 24, 2026 — Session 7 complete.*

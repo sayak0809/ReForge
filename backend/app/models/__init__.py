@@ -37,6 +37,7 @@ class Quest(Base):
     description = Column(String)
     quest_type = Column(String)
     diet_metric = Column(String, nullable=True)  # "calories" or "protein", only for quest_type == "diet"
+    diet_direction = Column(String, nullable=True)  # "deficit" (stay under) or "surplus" (eat at least), only for diet_metric == "calories"
     target_value = Column(Float)
     xp_reward = Column(Integer)
     rarity = Column(String, default="common")
