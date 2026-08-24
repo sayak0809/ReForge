@@ -111,12 +111,16 @@ class _CoachScreenState extends State<CoachScreen> {
         ),
         centerTitle: true,
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(child: _buildBody()),
-            _buildComposer(),
-          ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(child: _buildBody()),
+              _buildComposer(),
+            ],
+          ),
         ),
       ),
     );

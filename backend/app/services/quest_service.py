@@ -32,10 +32,23 @@ Pick targets that are attainable but a bit challenging given this specific user'
 Generate exactly {n} quest(s), using distinct categories from each other.{exclusion_note}
 
 Return ONLY valid JSON in exactly this shape, no markdown, no other text:
-{{"quests": [{{"category": "walking", "diet_metric": null, "target": number, "rarity": "common"}}]}}
-rarity must be one of: common, rare, epic, legendary (harder/longer targets should be rarer).
+{{"quests": [{{"category": "walking", "diet_metric": null, "target": number}}]}}
 target must be a positive number: walking/running/hiking in kilometers, swimming in meters, diet in kcal (calories metric) or grams (protein metric).
 """
+
+# Quest rarity is not the AI's call — it's derived deterministically from the
+# user's level, so daily quests visibly get more prestigious (and higher XP)
+# as the user actually progresses, instead of an LLM guessing "how hard" a
+# target is with no anchor to the player's own level curve.
+def _rarity_for_level(level: int) -> str:
+    level = level or 1
+    if level >= 30:
+        return "legendary"
+    if level >= 20:
+        return "epic"
+    if level >= 10:
+        return "rare"
+    return "common"
 
 
 def _level_target(user: User, category: str, diet_metric: str | None = None) -> float:
@@ -58,7 +71,7 @@ def _level_target(user: User, category: str, diet_metric: str | None = None) -> 
 def _fallback_spec(user: User, category: str) -> dict:
     diet_metric = random.choice(["calories", "protein"]) if category == "diet" else None
     target = _level_target(user, category, diet_metric)
-    return {"category": category, "diet_metric": diet_metric, "target": target, "rarity": "common"}
+    return {"category": category, "diet_metric": diet_metric, "target": target}
 
 
 def _fallback_specs(user: User, n: int, exclude_categories: list[str] | None = None) -> list[dict]:
@@ -88,11 +101,7 @@ def _clamp_spec(spec: dict) -> dict | None:
         lo, hi = TARGET_RANGES[category]
     target = max(lo, min(hi, target))
 
-    rarity = spec.get("rarity")
-    if rarity not in RARITY_XP:
-        rarity = "common"
-
-    return {"category": category, "diet_metric": diet_metric, "target": round(target, 1), "rarity": rarity}
+    return {"category": category, "diet_metric": diet_metric, "target": round(target, 1)}
 
 
 def _generate_specs_via_ai(
@@ -159,6 +168,10 @@ def _build_quest_specs(
         else:
             fallback = _fallback_specs(user, needed, exclude_categories=have_categories)
         valid.extend(fallback)
+
+    rarity = _rarity_for_level(user.level)
+    for spec in valid:
+        spec["rarity"] = rarity
 
     return valid[:n]
 

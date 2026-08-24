@@ -139,7 +139,10 @@ class _ManualFoodEntryScreenState extends State<ManualFoodEntryScreen> {
           style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, letterSpacing: 2),
         ),
       ),
-      body: ListView(
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           GestureDetector(
@@ -212,6 +215,7 @@ class _ManualFoodEntryScreenState extends State<ManualFoodEntryScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

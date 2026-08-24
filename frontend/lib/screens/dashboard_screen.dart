@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../widgets/trophy_badge.dart';
 import '../widgets/level_up_dialog.dart';
 import 'settings_screen.dart';
+import 'trophy_tiers_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -335,7 +336,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              TrophyBadge(title: user.title, size: 64),
+              GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => TrophyTiersScreen(currentLevel: user.level)),
+                ),
+                child: TrophyBadge(title: user.title, size: 64),
+              ),
             ],
           ),
           const SizedBox(height: 16),
