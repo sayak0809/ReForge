@@ -262,4 +262,42 @@ No Alembic migrations exist yet — these were applied directly against the loca
 
 ---
 
-*Documentation updated: August 24, 2026 — Session 4 complete.*
+## Session 5 — August 24, 2026
+
+### What we built
+
+This session took Reforge from "runs on my laptop" to "deployed and installed on two people's real phones" — plus a monorepo restructure, a proper onboarding flow, and a couple of real bugs found via actual beta-testing traffic.
+
+### Monorepo
+
+The two previously-separate repos (`reforge-backend`, `reforge`) were merged into a single GitHub repo, [sayak0809/ReForge](https://github.com/sayak0809/ReForge), as `backend/` and `frontend/` subdirectories. Deliberately **fresh history** — the original `reforge-backend` repo's first two commits had a committed `.env` (real API keys) and the entire 254MB `.venv/`, so that history was never imported. Both original repos still exist locally with their full history if ever needed.
+
+### Deployed to Railway
+
+- `backend/requirements.txt`, `backend/Procfile`, `backend/start.sh` added — Railway's Railpack builder needed these to detect and run a Python app (a `Procfile` line using shell `&&` chaining turned out not to work reliably with Railpack; a real `start.sh` script is more robust).
+- `DATABASE_URL` normalization: some hosts still hand out `postgres://` instead of `postgresql://`, which SQLAlchemy's psycopg2 dialect rejects — `database.py` now rewrites the scheme if needed. Also added an explicit `connect_timeout=10` so a bad connection fails loudly instead of hanging silently.
+- Live at `https://reforge-production-96f9.up.railway.app`, with a managed Postgres plugin in the same project.
+
+**The actual root cause of a long debugging session**: after deploying, every DB-touching request timed out or 502'd, and a lot of time went into suspecting the app's own network config, the Procfile's shell chaining, IPv6 vs IPv4 resolution, and Railway's private networking — all real secondary issues that got fixed along the way, but the actual cause turned out to be much simpler: **the Postgres container itself had exited**. Restarting it fixed everything immediately. Lesson for next time: check the database service's own status first before chasing networking theories.
+
+### Gemini free-tier quota
+
+Discovered mid-session: `gemini-2.5-flash`'s free tier caps out at **20 requests/day, total, shared across every user hitting the backend** (`RESOURCE_EXHAUSTED`, quota `generativelanguage.googleapis.com/generate_content_free_tier_requests`). Quests, food photo analysis, and Coach chat all draw from this one pool — it gets exhausted almost immediately with more than one active tester. Not fixable in code; needs billing enabled on the Gemini API key's Google Cloud project to lift the ceiling. While investigating, found and fixed a real gap: `POST /coach/chat` didn't catch Gemini API errors at all (only `ValueError`/`RuntimeError`), so a quota failure surfaced as a raw unhandled 500 instead of a clean error — now matches the pattern `food.py` already used (502 with a readable message).
+
+### Quest rarity is now level-based, not AI-judged
+
+Previously the LLM decided a quest's rarity (`common`/`rare`/`epic`/`legendary`, which drives XP reward) with only vague prompt guidance ("harder targets should be rarer") and no real anchor to the player's level. Now computed deterministically in `quest_service.py`: level <10 → common, 10–19 → rare, 20–29 → epic, 30+ → legendary. The AI (or the deterministic fallback generator) still picks the category and numeric target; rarity is applied uniformly afterward regardless of source.
+
+### Secrets exposure during debugging (handled, not a live issue)
+
+Mid-debugging, the Postgres password and `GEMINI_API_KEY` both ended up pasted into chat while inspecting Railway CLI output. Neither was ever pushed to a public location. The Gemini key was rotated as a precaution (real quota/billing impact if it had leaked further); the Postgres password was left as-is (throwaway beta DB, no real user data). Worth remembering for next time: `railway variables` prints full values — ask for variable *names* only, or pipe through something that redacts values, when debugging in a shared chat.
+
+### What's next
+
+- [ ] Still no real auth — any client can pass any `user_id` to any endpoint. Fine for a 2-3 person trusted beta, not fine beyond that.
+- [ ] Alembic migrations (still applied by hand — now doubly annoying since it's a deployed DB, not just local)
+- [ ] Consider a paid Gemini tier before expanding beta beyond a couple of testers
+
+---
+
+*Documentation updated: August 24, 2026 — Session 5 complete.*

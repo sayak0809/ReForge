@@ -2,7 +2,7 @@
 
 > A living document updated at the end of every build session, mirroring the backend's `REFORGE_DOCS.md`.
 
-Reforge is an AI-powered fitness RPG. This is the Flutter (iOS) client — it talks to the FastAPI backend in the sibling `reforge-backend` repo, which does all the actual logic (AI food analysis, quest generation, Coach, XP/leveling).
+Reforge is an AI-powered fitness RPG. This is the Flutter client (iOS + Android) — it talks to the FastAPI backend, which does all the actual logic (AI food analysis, quest generation, Coach, XP/leveling). Live backend: `https://reforge-production-96f9.up.railway.app`.
 
 ---
 
@@ -10,12 +10,17 @@ Reforge is an AI-powered fitness RPG. This is the Flutter (iOS) client — it ta
 
 ```bash
 flutter pub get
-flutter run
+flutter run --dart-define=API_BASE_URL=https://reforge-production-96f9.up.railway.app
 ```
 
-Points at `http://127.0.0.1:8000` by default (`ApiService._baseUrl`). The backend must be running (`uvicorn app.main:app --reload` from `reforge-backend`) with its Postgres container up (`docker-compose up -d`).
+`API_BASE_URL` (`ApiService._baseUrl`) defaults to `http://127.0.0.1:8000` if omitted — only useful when the backend is also running locally on the same machine as the app (e.g. an iOS simulator on the same Mac). For a real device, always pass `--dart-define` explicitly, pointed at either the deployed backend above or a reachable local one.
 
-There's no login/signup flow — the app is hardcoded to a single user, `ApiService.userId = 1`.
+Building for distribution works the same way:
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://reforge-production-96f9.up.railway.app
+```
+
+There's no login/signup screen requiring a password — first launch runs an onboarding flow (profile setup + a short feature walkthrough) that creates a real backend account and stores its id locally via `shared_preferences`. Nothing is hardcoded to a single user anymore.
 
 ---
 
@@ -88,4 +93,37 @@ Replaced the original dark/gold theme app-wide. `lib/theme/app_colors.dart` is t
 
 ---
 
-*Documentation updated: August 24, 2026 — Session 5 complete.*
+## Session 6 — August 24, 2026
+
+### What we built
+
+Turned this from "an app I run in a simulator" into something two real friends could actually install — a proper onboarding flow, a configurable backend URL, real iOS/Android distribution, and a few polish fixes surfaced by that first round of real use.
+
+### Onboarding — no more hardcoded user
+
+`ApiService.userId` was `static const int userId = 1` since the very first session. Now backed by `shared_preferences`: `ApiService.loadUserId()` restores it at startup (`main()` is `async` now), and a new `lib/screens/onboarding_screen.dart` — a button-driven `PageView` (setup form asking for first name/age/height/weight/goal weight, then 5 walkthrough slides explaining quests/food logging/Coach/trophies) — creates a real account via `ApiService.createUser()` on first launch and persists the returned id. `main.dart` gained a small `AppRoot` wrapper that shows onboarding or the main app depending on whether a user id is already stored, swapped via a callback (no circular import between `main.dart` and the onboarding screen).
+
+### Configurable API base URL
+
+`ApiService._baseUrl` was a hardcoded `http://127.0.0.1:8000` — meaning the app could only ever talk to a backend on the *same device* as the app, which is fine for a simulator but breaks completely for a real phone. Now reads `String.fromEnvironment('API_BASE_URL', ...)`, set at build time via `--dart-define`. Same mechanism works whether pointing at a LAN IP for same-WiFi testing or (what we ended up using) the deployed Railway URL.
+
+### Real device installs
+
+- **Android**: the default Flutter-scaffolded `AndroidManifest.xml` had zero `<uses-permission>` entries — no `INTERNET` permission means Android silently blocks all network access, which would have made every API call fail on a real device (unlike iOS, which doesn't require declaring network access at all). Added `INTERNET` and `CAMERA`. First successful `flutter build apk --release` produced a real, working, installable APK.
+- **iOS**: the bundle ID was still the Flutter-scaffold default `com.example.reforge` — Apple's free/personal-team code signing outright rejects any `com.example.*` bundle ID. Changed to `com.sayak0809.reforge`. With that fixed, free-tier signing (Xcode → Signing & Capabilities → Personal Team) successfully installed the app directly onto a real iPhone over cable (`flutter run --release --dart-define=...`), after also enabling Developer Mode on the device (`Settings → Privacy & Security → Developer Mode`).
+- **Remote iOS distribution investigated and ruled out for now**: ad-hoc IPA export + Diawi-style OTA install links require the *paid* Apple Developer Program ($99/yr) — a free Personal Team cannot create ad-hoc provisioning profiles at all, regardless of whether the target device's UDID is known. For a fully remote iPhone tester, the real options are: the friend builds/runs on their own Mac if they have one, or paying for the Developer Program (which also unlocks TestFlight, the actually-good way to do this).
+
+### Polish from first real use
+
+- **Keyboard couldn't be dismissed** on Coach or manual food entry after an error fired mid-typing — neither screen had tap-outside-to-dismiss wired up. Fixed on both with the standard `GestureDetector(onTap: () => FocusScope.of(context).unfocus())` wrap.
+- **Trophy tier list** — tapping the dashboard trophy now opens `lib/screens/trophy_tiers_screen.dart`, showing all 6 tiers (Novice → Legend) with level ranges, XP required to unlock each, and the current tier highlighted. Numbers are hardcoded in Dart to mirror the backend's `_xp_required_for_level` formula exactly (triangular number × 100) — no API call needed since it's pure static game data.
+
+### What's next
+
+- [ ] Level-*down* still isn't shown anywhere in the UI
+- [ ] No real progress tracking for non-diet quests (still an honesty tap)
+- [ ] Remote iOS distribution is unresolved without paying for the Apple Developer Program
+
+---
+
+*Documentation updated: August 24, 2026 — Session 6 complete.*
