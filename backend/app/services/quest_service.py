@@ -115,7 +115,7 @@ def _generate_specs_via_ai(
 
     prompt = QUEST_SPEC_PROMPT.format(context=context_text, n=n, exclusion_note=exclusion_note)
     client = get_client()
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=[prompt])
+    response = client.models.generate_content(model="gemini-3.6-flash", contents=[prompt])
     data = extract_json(response.text)
     return data.get("quests", [])[:n]
 

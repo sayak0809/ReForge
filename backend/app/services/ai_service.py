@@ -22,7 +22,7 @@ def _call_gemini_sync(images: list[bytes]) -> dict:
         for img in images
     ]
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=[FOOD_PROMPT] + image_parts,
     )
     return extract_json(response.text)
